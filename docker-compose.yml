@@ -1,0 +1,234 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    environment:
+      - ZOOKEEPER_CLIENT_PORT=2181
+      - ZOOKEEPER_TICK_TIME=2000
+    ports:
+      - "2181:2181"
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+    networks:
+      - fuel-net
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      - KAFKA_BROKER_ID=1
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_LISTENERS=INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
+      - KAFKA_ADVERTISED_LISTENERS=INTERNAL://kafka:29092,EXTERNAL://host.docker.internal:9092
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_INTER_BROKER_LISTENER_NAME=INTERNAL
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
+      - KAFKA_RETENTION_MS=3600000
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    networks:
+      - fuel-net
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "kafka:29092"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 6G
+
+  emqx:
+    image: emqx/emqx:5.8.0
+    container_name: emqx
+    ports:
+      - "1883:1883"
+      - "8083:8083"
+      - "18083:18083"
+    environment:
+      - EMQX_NODE__NAME=emqx@127.0.0.1
+      - EMQX_NODE__COOKIE=emqxsecretcookie
+    volumes:
+      - ./emqx/config/emqx.conf:/opt/emqx/etc/emqx.conf:ro
+      - emqx_data:/opt/emqx/data
+      - emqx_log:/opt/emqx/log
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - fuel-net
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx", "ctl", "status"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  mqtt-kafka-bridge:
+    build: ./mqtt-kafka-bridge
+    container_name: mqtt-kafka-bridge
+    environment:
+      - MQTT_BROKER=tcp://emqx:1883
+      - MQTT_TOPIC=fuel/sensors
+      - MQTT_CLIENT_ID=mqtt-kafka-bridge
+      - MQTT_QOS=1
+      - KAFKA_BROKERS=kafka:29092
+      - KAFKA_TOPIC=fuel-sensor-data
+      - HTTP_PORT=8090
+    ports:
+      - "8090:8090"
+    depends_on:
+      kafka:
+        condition: service_healthy
+      emqx:
+        condition: service_healthy
+    networks:
+      - fuel-net
+    restart: unless-stopped
+
+  timescale:
+    image: timescale/timescaledb:latest-pg15
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=fuel
+      - POSTGRES_PASSWORD=fuelpass
+      - POSTGRES_DB=fuel_db
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fuel -d fuel_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fuel-net
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: kafka-exporter
+    ports:
+      - "9308:9308"
+    command:
+      - "--kafka.server=kafka:29092"
+    depends_on:
+      - kafka
+    networks:
+      - fuel-net
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring:/etc/prometheus:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    environment:
+      - K8S_API_SERVER=https://minikube:8443
+    networks:
+      - fuel-net
+      - minikube
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      - prometheus
+    networks:
+      - fuel-net
+
+  load-analytics-service:
+    build: ./load-analytics-service
+    container_name: load-analytics-service
+    environment:
+      - DATABASE_URL=postgres://fuel:fuelpass@timescale:5432/fuel_db
+      - METRICS_PORT=8000
+      - REFRESH_INTERVAL_SECONDS=5
+      - KUBECONFIG=/root/.kube/config
+      - HPA_NAME=fuel-service-hpa
+      - HPA_NAMESPACE=fuel-monitor
+      - MAX_RPS_PER_POD=2.0
+    volumes:
+      - ./load-analytics-service/kubeconfig-docker.yaml:/root/.kube/config:ro
+    depends_on:
+      timescale:
+        condition: service_healthy
+    networks:
+      - fuel-net
+    restart: unless-stopped
+
+  map-backend:
+    build: ./map-ui/backend
+    container_name: map-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgres://fuel:fuelpass@timescale:5432/fuel_db
+    depends_on:
+      timescale:
+        condition: service_healthy
+    networks:
+      - fuel-net
+
+  map-frontend:
+    build: ./map-ui/frontend
+    container_name: map-frontend
+    ports:
+      - "80:80"
+    environment:
+      - VITE_API_URL=http://localhost:8000/api/tracks
+    depends_on:
+      - map-backend
+    networks:
+      - fuel-net
+
+volumes:
+  zookeeper_data:
+  kafka_data:
+  timescale_data:
+  prometheus_data:
+  grafana_data:
+  emqx_data:
+  emqx_log:
+
+networks:
+  fuel-net:
+    name: fuel-monitor-net
+    external: false
+  minikube:
+    external: true

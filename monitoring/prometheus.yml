@@ -1,0 +1,62 @@
+global:
+  scrape_interval: 2s
+  evaluation_interval: 2s
+
+scrape_configs:
+  - job_name: 'fuel-service-pods'
+    kubernetes_sd_configs:
+      - role: pod
+        api_server: 'https://minikube:8443'
+        bearer_token_file: '/etc/prometheus/k8s-auth/token'
+        tls_config:
+          insecure_skip_verify: true
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        action: keep
+        regex: fuel-service
+
+      - source_labels: [__meta_kubernetes_pod_phase]
+        action: keep
+        regex: Running
+
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: "true"
+
+      - target_label: __address__
+        replacement: 'host.docker.internal:30080'
+
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+
+  - job_name: 'kubernetes-kubelet'
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
+    bearer_token_file: /etc/prometheus/k8s-auth/token
+    kubernetes_sd_configs:
+      - role: node
+        api_server: 'https://minikube:8443'
+        bearer_token_file: '/etc/prometheus/k8s-auth/token'
+        tls_config:
+          insecure_skip_verify: true
+    relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - target_label: __address__
+        replacement: 'minikube:8443'
+      - source_labels: [__meta_kubernetes_node_name]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/${1}/proxy/metrics/resource
+
+  - job_name: 'load-analytics-service'
+    static_configs:
+      - targets: ['load-analytics-service:8000']
+
+  - job_name: 'kafka-exporter'
+    static_configs:
+      - targets: ['kafka-exporter:9308']

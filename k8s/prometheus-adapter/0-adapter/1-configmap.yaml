@@ -1,0 +1,19 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: custom-metrics-prometheus-adapter
+  namespace: monitoring
+  labels:
+    app: prometheus-adapter
+data:
+  config.yaml: |
+    externalRules:
+    - seriesQuery: 'kafka_consumergroup_lag'
+      resources:
+        namespaced: false
+      metricsQuery: 'avg(kafka_consumergroup_lag{topic="fuel-sensor-data"})'
+    - seriesQuery: 'fuel_monitor_predicted_rps'
+      resources:
+        namespaced: false
+      metricsQuery: 'fuel_monitor_predicted_rps'

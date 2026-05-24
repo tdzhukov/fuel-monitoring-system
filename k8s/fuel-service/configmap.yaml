@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fuel-migrations
+  namespace: fuel-monitor
+  labels:
+    app: fuel-service
+    component: migrations
+data:
+  001_create_sensor_data_table.up.sql: |
+    CREATE TABLE IF NOT EXISTS sensor_data (
+      timestamp TIMESTAMPTZ NOT NULL,
+      vehicle_id TEXT NOT NULL,
+      latitude DOUBLE PRECISION NOT NULL,
+      longitude DOUBLE PRECISION NOT NULL,
+      fuel_rate DOUBLE PRECISION NOT NULL,
+      ingested_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    SELECT create_hypertable('sensor_data', 'timestamp', if_not_exists => TRUE);
+
+  001_create_sensor_data_table.down.sql: |
+    DROP TABLE IF EXISTS sensor_data;
+
+  002_add_indexes.up.sql: |
+    CREATE INDEX IF NOT EXISTS idx_sensor_data_vehicle_time
+    ON sensor_data (vehicle_id, timestamp DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_sensor_data_vehicle_only
+        ON sensor_data (vehicle_id);
+
+    CREATE INDEX IF NOT EXISTS idx_sensor_data_time_only
+        ON sensor_data (timestamp DESC);
+
+    -- Политики хранения и компрессии
+    SELECT add_retention_policy('sensor_data', INTERVAL '90 days', if_not_exists => TRUE);
+
+    ALTER TABLE sensor_data SET (
+        timescaledb.compress,
+        timescaledb.compress_orderby = 'timestamp DESC',
+        timescaledb.compress_segmentby = 'vehicle_id'
+    );
+
+    SELECT add_compression_policy('sensor_data', INTERVAL '7 days', if_not_exists => TRUE);
+
+  002_add_indexes.down.sql: |
+    DROP INDEX IF EXISTS idx_sensor_data_vehicle_time;
+    DROP INDEX IF EXISTS idx_sensor_data_vehicle_only;
+    DROP INDEX IF EXISTS idx_sensor_data_time_only;
+
+    SELECT remove_retention_policy('sensor_data', if_exists => TRUE);
+    SELECT remove_compression_policy('sensor_data', if_exists => TRUE);

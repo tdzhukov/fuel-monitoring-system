@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fuel-service
+  namespace: fuel-monitor
+  labels:
+    app: fuel-service
+    component: backend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: fuel-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: fuel-service
+        component: backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: fuel-service
+        image: fuel-monitor:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: PORT
+          value: "8080"
+        - name: LOG_LEVEL
+          value: "info"
+        - name: WORKER_COUNT
+          value: "20"
+        - name: BATCH_SIZE
+          value: "100"
+        - name: BATCH_TIMEOUT
+          value: "100ms"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: url
+        - name: DB_MAX_CONNS
+          value: "50"
+        - name: MIGRATIONS_PATH
+          value: "/app/migrations"
+        - name: KAFKA_BROKERS
+          value: "host.docker.internal:9092"
+        - name: KAFKA_TOPIC
+          value: "fuel-sensor-data"
+        - name: KAFKA_GROUP_ID
+          value: "fuel-monitor-consumer"
+        - name: KAFKA_START_OFFSET
+          value: "-1"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: migrations
+          mountPath: /app/migrations
+          readOnly: true
+      volumes:
+      - name: migrations
+        configMap:
+          name: fuel-migrations
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: fuel-service
+              topologyKey: kubernetes.io/hostname
