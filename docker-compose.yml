@@ -81,13 +81,13 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  mqtt-kafka-bridge:
-    build: ./mqtt-kafka-bridge
-    container_name: mqtt-kafka-bridge
+  emqx-kafka-bridge:
+    build: ./emqx/emqx-kafka-bridge
+    container_name: emqx-kafka-bridge
     environment:
       - MQTT_BROKER=tcp://emqx:1883
       - MQTT_TOPIC=fuel/sensors
-      - MQTT_CLIENT_ID=mqtt-kafka-bridge
+      - MQTT_CLIENT_ID=emqx-kafka-bridge
       - MQTT_QOS=1
       - KAFKA_BROKERS=kafka:29092
       - KAFKA_TOPIC=fuel-sensor-data

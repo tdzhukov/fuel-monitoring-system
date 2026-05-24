@@ -9,10 +9,10 @@ EMQX по правилу rule_engine перекладывает их в Kafka-т
 
 Примеры запуска:
     # 20 сообщений по 5 машинам с интервалом 1 с (значения по умолчанию)
-    python3 iot-simulator.py
+    python3 iot_simulator.py
 
     # 50 сообщений по 10 машинам каждые 500 мс
-    python3 iot-simulator.py --count 50 --vehicles 10 --interval 0.5
+    python3 iot_simulator.py --count 50 --vehicles 10 --interval 0.5
 """
 import argparse
 import json

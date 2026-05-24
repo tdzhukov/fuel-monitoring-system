@@ -1,17 +1,10 @@
 #!/usr/bin/env python3
 """
-Тест масштабирования HPA до 6 реплик.
+Тест масштабирования HPA.
 
 Алгоритм:
   1. Очистка всех данных в sensor_data за последние 7 дней
-  2. 30 минут равномерной нагрузки @ 9 RPS
-
-Математика:
-  season_factor = 1.0  (единственный слот в профиле = глобальное среднее)
-  WMA           ≈ 9 RPS
-  predicted_rps = 9 * 1.0 = 9
-  target_load   = 9 * 1.2 = 10.8
-  replicas      = ceil(10.8 / 2.0) = 6  ✓
+  2. 30 минут равномерной нагрузки
 """
 
 import logging
@@ -25,8 +18,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 DB_URL = "postgres://fuel:fuelpass@localhost:5432/fuel_db"
-TARGET_RPS = 5.0
-VEHICLE_IDS = [f"SCALE6-{i:03d}" for i in range(1, 11)]
+TARGET_RPS = 50.0
+VEHICLE_IDS = [f"SCALE-{i:03d}" for i in range(1, 11)]
 
 
 def cleanup(conn):
@@ -65,11 +58,6 @@ def generate(conn):
     conn.commit()
 
     logger.info(f"Вставлено {len(buffer):,} записей.")
-    logger.info("")
-    logger.info("Ожидаемый результат через ≤60 сек:")
-    logger.info(f"  WMA ≈ {TARGET_RPS} RPS × season 1.0 -> 6 реплик")
-    logger.info("Следи:")
-    logger.info("  watch kubectl get hpa fuel-service-hpa -n fuel-monitor")
 
 
 def main():

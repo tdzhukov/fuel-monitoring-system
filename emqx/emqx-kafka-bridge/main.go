@@ -1,4 +1,4 @@
-// mqtt-kafka-bridge: подписывается на MQTT-топик в EMQX и перекладывает
+// emqx-kafka-bridge: подписывается на MQTT-топик в EMQX и перекладывает
 // каждое полученное сообщение в Kafka-топик. Сервис нужен потому,
 // что EMQX Open Source не содержит встроенного Kafka Producer Bridge.
 package main
@@ -41,7 +41,7 @@ func loadConfig() config {
 	return config{
 		MQTTBroker:   getEnv("MQTT_BROKER", "tcp://emqx:1883"),
 		MQTTTopic:    getEnv("MQTT_TOPIC", "fuel/sensors"),
-		MQTTClientID: getEnv("MQTT_CLIENT_ID", "mqtt-kafka-bridge"),
+		MQTTClientID: getEnv("MQTT_CLIENT_ID", "emqx-kafka-bridge"),
 		MQTTQoS:      byte(qos),
 		KafkaBrokers: strings.Split(getEnv("KAFKA_BROKERS", "kafka:29092"), ","),
 		KafkaTopic:   getEnv("KAFKA_TOPIC", "fuel-sensor-data"),
@@ -88,7 +88,7 @@ func main() {
 	defer logger.Sync()
 
 	cfg := loadConfig()
-	logger.Info("starting mqtt-kafka-bridge",
+	logger.Info("starting emqx-kafka-bridge",
 		zap.String("mqtt_broker", cfg.MQTTBroker),
 		zap.String("mqtt_topic", cfg.MQTTTopic),
 		zap.Strings("kafka_brokers", cfg.KafkaBrokers),

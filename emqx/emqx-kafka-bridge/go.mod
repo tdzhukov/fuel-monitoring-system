@@ -1,4 +1,4 @@
-module mqtt-kafka-bridge
+module emqx-kafka-bridge
 
 go 1.21
 

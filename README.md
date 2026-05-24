@@ -3,7 +3,7 @@
 Работающий прототип системы мониторинга с реактивным и проактивным
 масштабированием в Kubernetes.
 
-Архитектура: IoT-устройства -> MQTT (EMQX) -> Kafka ->
+Архитектура: IoT-устройства -> EMQX -> Kafka ->
 Go-сервис обработки -> TimescaleDB -> Vue-карта.
 
 Поверх — Prometheus/Grafana, Kubernetes HPA с
@@ -22,13 +22,7 @@ Go-сервис обработки -> TimescaleDB -> Vue-карта.
   (SQL-миграции). Метрики Prometheus на `:8080/metrics`.
 - [load-analytics-service/](load-analytics-service/) — Python-сервис
   проактивного масштабирования. Считает прогноз RPS на 15 минут вперёд
-  и публикует метрику
-  `fuel_monitor_predicted_rps` для HPA. Здесь же лежат скрипты экспериментов
-  ([hpa_scale_test.py](load-analytics-service/hpa_scale_test.py),
-  [kafka_lag_test.py](load-analytics-service/kafka_lag_test.py),
-  [cpu_hpa_sampler.py](load-analytics-service/cpu_hpa_sampler.py))
-  и настройки HPA для них ([hpa-lag-only.yaml](k8s/fuel-service/hpa-lag-only.yaml),
-    [hpa-cpu-only.yaml](k8s/fuel-service/hpa-cpu-only.yaml).
+  и публикует метрику `fuel_monitor_predicted_rps`.
 - [map-ui/](map-ui/) — UI для просмотра треков:
   [backend/](map-ui/backend/) (FastAPI, отдаёт треки из TimescaleDB)
   и [frontend/](map-ui/frontend/) (Vue + Vite).
@@ -51,15 +45,15 @@ Go-сервис обработки -> TimescaleDB -> Vue-карта.
   Grafana ([dashboards/](monitoring/dashboards/),
   [datasources/](monitoring/datasources/)), kubeconfig-токен для
   сбора метрик с подов ([k8s-auth/](monitoring/k8s-auth/)).
-- [emqx/config/](emqx/) — конфигурация MQTT-брокера.
+- [emqx/](emqx/) — конфигурация MQTT-брокера.
 - [kafka-config/](kafka-config/) — JVM-настройки Kafka.
 
 #### Скрипты и эксперименты
 
-- [iot-simulator.py](iot-simulator.py) — симулятор IoT-устройств:
-  публикует JSON-события в MQTT-топик `fuel/sensors`.
-- [generate_route.py](generate_route.py) —
-  генератор реального маршрута для карты приложения.
+- [tests/common](tests/common) — общие тестовые скрипты:
+  симулятор IoT-устройств и генератор маршрута.
+- [tests/hpa](tests/hpa) — скрипты с экспериментами для
+  разных конфигураций HPA.
 
 ## Как запустить
 
@@ -89,7 +83,7 @@ docker compose up -d
 
 ```bash
 pip install paho-mqtt
-python3 iot-simulator.py --count 100 --vehicles 10 --interval 0.5
+python3 iot_simulator.py --count 100 --vehicles 10 --interval 0.5
 ```
 
 ### 3. Kubernetes-кластер (Minikube)
@@ -129,18 +123,18 @@ kubectl get hpa -n fuel-monitor
 Переключение режимов HPA для экспериментов:
 
 ```bash
-kubectl apply -f load-analytics-service/tests/hpa-lag-only.yaml  # только реактивный
-kubectl apply -f load-analytics-service/tests/hpa-cpu-only.yaml  # только по CPU
-kubectl apply -f k8s/fuel-service/hpa.yaml                       # комбинированный
+kubectl apply -f tests/hpa/hpa-cpu-only.yaml  # только реактивный
+kubectl apply -f tests/hpa/hpa-cpu-only.yaml  # только по CPU
+kubectl apply -f k8s/fuel-service/hpa.yaml    # комбинированный
 ```
 
-Все скрипты — в [load-analytics-service/](load-analytics-service/).
+Все скрипты в [tests/](tests/).
 
 ```bash
-cd load-analytics-service
-pip install -r requirements.txt
+pip install -r load-analytics-service/requirements.txt
+cd tests/hpa
 
-python3 hpa_scale_test.py        # проактивное масштабирование (прогноз RPS)
-python3 kafka_lag_test.py        # реактивное масштабирование (Kafka lag)
-python3 cpu_hpa_sampler.py       # масштабирование по CPU
+python3 hpa_scale_test.py   # проактивное масштабирование (прогноз RPS)
+python3 kafka_lag_test.py   # реактивное масштабирование (Kafka lag)
+python3 cpu_hpa_sampler.py  # масштабирование по CPU
 ```
